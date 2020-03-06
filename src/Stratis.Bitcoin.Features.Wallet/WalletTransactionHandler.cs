@@ -61,6 +61,12 @@ namespace Stratis.Bitcoin.Features.Wallet
             int retryCount = 0;
 
             TransactionPolicyError[] errors = null;
+
+            // Collection of coins that we already have secrets loaded for.
+            // It is needed in order to avoid loading secrets that have already
+            // been loaded during previous tries.
+            HashSet<ICoin> loadedCoins = new HashSet<ICoin>();
+
             while (retryCount <= maxRetries)
             {
                 if (context.Shuffle)
@@ -70,8 +76,16 @@ namespace Stratis.Bitcoin.Features.Wallet
                 if (context.Sign)
                 {
                     ICoin[] coinsSpent = context.TransactionBuilder.FindSpentCoins(transaction);
-                    // TODO: Improve this as we already have secrets when running a retry iteration.
-                    this.AddSecrets(context, coinsSpent);
+
+                    // Collection of coins that don't have secrets loaded for them in previous iterations.
+                    List<ICoin> newCoinsSpent = coinsSpent.Where(x => !loadedCoins.Contains(x)).ToList();
+
+                    if (newCoinsSpent.Count != 0)
+                    {
+                        this.AddSecrets(context, newCoinsSpent);
+                        loadedCoins.UnionWith(newCoinsSpent);
+                    }
+
                     context.TransactionBuilder.SignTransactionInPlace(transaction);
                 }
 
@@ -79,7 +93,8 @@ namespace Stratis.Bitcoin.Features.Wallet
                     return transaction;
 
                 // Retry only if error is of type 'FeeTooLowPolicyError'
-                if (!errors.Any(e => e is FeeTooLowPolicyError)) break;
+                if (!errors.Any(e => e is FeeTooLowPolicyError))
+                    break;
 
                 retryCount++;
             }
@@ -236,9 +251,6 @@ namespace Stratis.Bitcoin.Features.Wallet
         /// <param name="coinsSpent">The coins spent to generate the transaction.</param>
         protected void AddSecrets(TransactionBuildContext context, IEnumerable<ICoin> coinsSpent)
         {
-            if (!context.Sign)
-                return;
-
             Wallet wallet = this.walletManager.GetWalletByName(context.AccountReference.WalletName);
             ExtKey seedExtKey = this.walletManager.GetExtKey(context.AccountReference, context.WalletPassword, context.CacheSecret);
 

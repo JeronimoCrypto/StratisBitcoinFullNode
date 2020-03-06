@@ -664,13 +664,6 @@ namespace NBitcoin
             set;
         }
 
-        private LockTime? _LockTime;
-        public TransactionBuilder SetLockTime(LockTime lockTime)
-        {
-            this._LockTime = lockTime;
-            return this;
-        }
-
         private uint? _TimeStamp;
         public TransactionBuilder SetTimeStamp(uint timeStamp)
         {
@@ -1158,9 +1151,6 @@ namespace NBitcoin
             if (this._CompletedTransaction != null)
                 ctx.Transaction = this.Network.CreateTransaction(this._CompletedTransaction.ToBytes());
 
-            if (this._LockTime != null)
-                ctx.Transaction.LockTime = this._LockTime.Value;
-
             if (this._TimeStamp != null)
                 ctx.Transaction.Time = this._TimeStamp.Value;
 
@@ -1296,11 +1286,6 @@ namespace NBitcoin
                 TxIn input = ctx.Transaction.Inputs.FirstOrDefault(i => i.PrevOut == coin.Outpoint);
                 if (input == null)
                     input = ctx.Transaction.AddInput(new TxIn(coin.Outpoint));
-                if (this._LockTime != null && !ctx.NonFinalSequenceSet)
-                {
-                    input.Sequence = 0;
-                    ctx.NonFinalSequenceSet = true;
-                }
             }
 
             return selection;

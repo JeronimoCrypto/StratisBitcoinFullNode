@@ -77,11 +77,11 @@ namespace NBitcoin
                                     {
                                         Amount = scriptPubKeyCoins.Select(c => c.Amount).Sum(zero),
                                         Coins = scriptPubKeyCoins.ToList()
-                                    }).OrderBy(c => c.Amount);
+                                    }).OrderBy(c => c.Amount).ToArray();
 
 
-            var targetCoin = orderedCoinGroups
-                            .FirstOrDefault(c => c.Amount.CompareTo(target) == 0);
+            var targetCoin = orderedCoinGroups.FirstOrDefault(c => c.Amount.CompareTo(target) == 0);
+
             //If any of your UTXO² matches the Target¹ it will be used.
             if (targetCoin != null)
                 return targetCoin.Coins;
@@ -95,58 +95,55 @@ namespace NBitcoin
                     //If the "sum of all your UTXO smaller than the Target" happens to match the Target, they will be used. (This is the case if you sweep a complete wallet.)
                     if (total.CompareTo(target) == 0)
                         return result;
-
                 }
-                else
+                else if (total.CompareTo(target) == -1 && coinGroup.Amount.CompareTo(target) == 1)
                 {
-                    if (total.CompareTo(target) == -1 && coinGroup.Amount.CompareTo(target) == 1)
-                    {
-                        //If the "sum of all your UTXO smaller than the Target" doesn't surpass the target, the smallest UTXO greater than your Target will be used.
-                        return coinGroup.Coins;
-                    }
-                    else
-                    {
-                        // Else Bitcoin Core does 1000 rounds of randomly combining unspent transaction outputs until their sum is greater than or equal to the Target. If it happens to find an exact match, it stops early and uses that.
-                        // Otherwise it finally settles for the minimum of
-                        // the smallest UTXO greater than the Target
-                        // the smallest combination of UTXO it discovered in Step 4.
-                        var allCoins = orderedCoinGroups.ToArray();
-                        IMoney minTotal = null;
-
-
-                        for (int _ = 0; _ < 1000; _++)
-                        {
-                            var selection = new List<ICoin>();
-                            Utils.Shuffle(allCoins, this._Rand);
-                            total = zero;
-                            for (int i = 0; i < allCoins.Length; i++)
-                            {
-                                selection.AddRange(allCoins[i].Coins);
-                                total = total.Add(allCoins[i].Amount);
-                                if (total.CompareTo(target) == 0)
-                                    return selection;
-                                if (total.CompareTo(target) == 1)
-                                    break;
-                            }
-                            if (total.CompareTo(target) == -1)
-                            {
-                                return null;
-                            }
-                            if (minTotal == null || total.CompareTo(minTotal) == -1)
-                            {
-                                minTotal = total;
-                                result = selection;
-                            }
-                        }
-
-                        if (minTotal != null)
-                        {
-                            total = minTotal;
-                        }
-                        break;
-                    }
+                    //If the "sum of all your UTXO smaller than the Target" doesn't surpass the target, the smallest UTXO greater than your Target will be used.
+                    return coinGroup.Coins;
                 }
             }
+
+            // Else Bitcoin Core does 1000 rounds of randomly combining unspent transaction outputs until their sum is greater than or equal to the Target.
+            // If it happens to find an exact match, it stops early and uses that.
+            // Otherwise it finally settles for the minimum of the smallest UTXO greater than the Target
+            // the smallest combination of UTXO it discovered in Step 4.
+            // See https://bitcoin.stackexchange.com/questions/1077/what-is-the-coin-selection-algorithm
+            IMoney minTotal = null;
+
+            // We use just 10 rounds since this algorithm is a huge bottleneck.
+            // From btc core code: "the randomness serves no real security purpose but is just needed to prevent degenerate behavior"
+            // therefore usage of smaller amount of rounds is justified.
+            // https://github.com/bitcoin/bitcoin/blob/master/src/wallet/coinselection.cpp#L188
+            int numberOfRounds = 10;
+
+            for (int _ = 0; _ < numberOfRounds; _++)
+            {
+                var selection = new List<ICoin>();
+                Utils.Shuffle(orderedCoinGroups, this._Rand);
+                total = zero;
+
+                for (int i = 0; i < orderedCoinGroups.Length; i++)
+                {
+                    selection.AddRange(orderedCoinGroups[i].Coins);
+                    total = total.Add(orderedCoinGroups[i].Amount);
+                    if (total.CompareTo(target) == 0)
+                        return selection;
+                    if (total.CompareTo(target) == 1)
+                        break;
+                }
+
+                if (total.CompareTo(target) == -1)
+                    return null;
+
+                if (minTotal == null || total.CompareTo(minTotal) == -1)
+                {
+                    minTotal = total;
+                    result = selection;
+                }
+            }
+
+            if (minTotal != null)
+                total = minTotal;
 
             if (total.CompareTo(target) == -1)
                 return null;
@@ -171,7 +168,6 @@ namespace NBitcoin
 
             return result;
         }
-
         #endregion
     }
 
